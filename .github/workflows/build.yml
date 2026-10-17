@@ -13,6 +13,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
 
@@ -49,10 +50,29 @@ jobs:
 
       - name: Run installer silently (with existing compilers hidden, to test the GCC download)
         shell: powershell
+        timeout-minutes: 30
         run: |
           $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'mingw|msys|strawberry|cygwin|llvm' }) -join ';'
-          $p = Start-Process dist\NishantsDSASetup-Windows.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/LOG=install.log' -Wait -PassThru
-          Get-Content "$env:LOCALAPPDATA\NishantDSASetup\setup.log"
+          $log = "$env:LOCALAPPDATA\NishantDSASetup\setup.log"
+          $p = Start-Process dist\NishantsDSASetup-Windows.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/LOG=install.log' -PassThru
+          # Stream the setup log so a slow or stuck step is visible while it runs.
+          $shown = 0
+          $deadline = (Get-Date).AddMinutes(25)
+          while (-not $p.HasExited -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 15
+            if (Test-Path $log) {
+              $lines = @(Get-Content $log)
+              if ($lines.Count -gt $shown) { $lines[$shown..($lines.Count - 1)] | ForEach-Object { Write-Host $_ }; $shown = $lines.Count }
+            }
+            Write-Host "... $(Get-Date -Format 'HH:mm:ss') still running"
+          }
+          if (-not $p.HasExited) {
+            Write-Host 'Installer did not finish in 25 minutes. Running processes:'
+            Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'powershell|curl|tar|code|setup|Code' } | Select-Object ProcessId, ParentProcessId, Name, CommandLine | Format-Table -AutoSize -Wrap
+            Get-Content install.log -ErrorAction SilentlyContinue
+            exit 1
+          }
+          if (Test-Path $log) { $lines = @(Get-Content $log); if ($lines.Count -gt $shown) { $lines[$shown..($lines.Count - 1)] } }
           if ($p.ExitCode -ne 0) { Get-Content install.log; exit 1 }
 
       - name: Verify setup

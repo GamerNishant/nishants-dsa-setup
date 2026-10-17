@@ -40,16 +40,9 @@ Name: "{group}\Restore my previous setup"; Filename: "{sys}\WindowsPowerShell\v1
 Name: "{group}\Backups and logs"; Filename: "{localappdata}\NishantDSASetup"
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\setup.ps1"" {code:SetupArgs}"; StatusMsg: "Setting up... follow the PowerShell window."; Flags: waituntilterminated
+; Silent installs (/VERYSILENT) must never wait for keyboard input.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\windows\setup.ps1"" -Unattended"; Check: WizardSilent; Flags: waituntilterminated runhidden
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\setup.ps1"""; Check: not WizardSilent; StatusMsg: "Setting up... follow the PowerShell window."; Flags: waituntilterminated
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\windows\restore.ps1"" -FromUninstaller"; RunOnceId: "RestorePreviousSetup"; Flags: waituntilterminated
-
-[Code]
-function SetupArgs(Param: String): String;
-begin
-  if WizardSilent then
-    Result := '-Unattended'
-  else
-    Result := '';
-end;
