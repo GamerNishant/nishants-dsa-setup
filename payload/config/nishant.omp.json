@@ -1,0 +1,73 @@
+{
+  
+  "upgrade": {
+    "source": "cdn",
+    "interval": "168h",
+    "auto": false,
+    "notice": false
+  },
+  "blocks": [
+    {
+      "type": "prompt",
+      "alignment": "left",
+      "segments": [
+        {
+          "template": " \uf0e7 ",
+          "foreground": "#100e23",
+          "powerline_symbol": "\ue0b0",
+          "background": "#ffe9aa",
+          "type": "root",
+          "style": "powerline"
+        },
+        {
+          "template": " {{ .UserName }} ",
+          "foreground": "#100e23",
+          "powerline_symbol": "\ue0b0",
+          "background": "#ffffff",
+          "type": "session",
+          "style": "powerline"
+        },
+        {
+          "options": {
+            "folder_icon": "\uf115",
+            "folder_separator_icon": " \ue0b1 ",
+            "home_icon": "\ueb06",
+            "style": "agnoster"
+          },
+          "template": " {{ .Path }} ",
+          "foreground": "#100e23",
+          "powerline_symbol": "\ue0b0",
+          "background": "#91ddff",
+          "type": "path",
+          "style": "powerline"
+        },
+        {
+          "template": " {{ .HEAD }} ",
+          "foreground": "#193549",
+          "powerline_symbol": "\ue0b0",
+          "background": "#95ffa4",
+          "type": "git",
+          "style": "powerline"
+        },
+        {
+          "template": " \ue235 {{ if .Error }}{{ .Error }}{{ else }}{{ if .Venv }}{{ .Venv }} {{ end }}{{ .Full }}{{ end }} ",
+          "foreground": "#100e23",
+          "powerline_symbol": "\ue0b0",
+          "background": "#906cff",
+          "type": "python",
+          "style": "powerline"
+        },
+        {
+          "template": " {{ reason .Code }} ",
+          "foreground": "#ffffff",
+          "powerline_symbol": "\ue0b0",
+          "background": "#ff8080",
+          "type": "status",
+          "style": "powerline"
+        }
+      ]
+    }
+  ],
+  "version": 4,
+  "final_space": true
+}

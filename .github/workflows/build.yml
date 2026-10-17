@@ -1,0 +1,227 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $ver = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0' }
+          & $iscc "/DAppVer=$ver" windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/NishantsDSASetup-Windows.exe
+
+      - name: Pretend to be a student who already has some settings
+        shell: powershell
+        run: |
+          $user = "$env:APPDATA\Code\User"
+          New-Item -ItemType Directory -Force $user | Out-Null
+          Set-Content "$user\settings.json" @'
+          {
+              // my own settings
+              "editor.fontSize": 14,
+              "workbench.colorTheme": "Default Dark+",
+              "code-runner.executorMap": { "python": "python -u", },
+          }
+          '@
+          $docs = [Environment]::GetFolderPath('MyDocuments')
+          New-Item -ItemType Directory -Force "$docs\WindowsPowerShell" | Out-Null
+          Set-Content "$docs\WindowsPowerShell\Microsoft.PowerShell_profile.ps1" 'Set-Alias ll Get-ChildItem'
+
+      - name: Run installer silently (with existing compilers hidden, to test the GCC download)
+        shell: powershell
+        run: |
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'mingw|msys|strawberry|cygwin|llvm' }) -join ';'
+          $p = Start-Process dist\NishantsDSASetup-Windows.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/LOG=install.log' -Wait -PassThru
+          Get-Content "$env:LOCALAPPDATA\NishantDSASetup\setup.log"
+          if ($p.ExitCode -ne 0) { Get-Content install.log; exit 1 }
+
+      - name: Verify setup
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Check($cond, $msg) { if ($cond) { Write-Host "PASS $msg" } else { Write-Host "FAIL $msg"; $script:bad = $true } }
+          $s = Get-Content -Raw "$env:APPDATA\Code\User\settings.json" | ConvertFrom-Json
+          Check ($s.'workbench.colorTheme' -eq 'Tomorrow Night Blue') 'theme set'
+          Check ($s.'editor.fontSize' -eq 20) 'editor font size set'
+          Check ($s.'code-runner.executorMap'.python -eq 'python -u') 'student executor kept'
+          Check ($s.'code-runner.executorMap'.cpp -match 'g\+\+') 'cpp executor added'
+          Check ($s.'cph.language.cpp.Args' -eq '-static') 'static linking for CPH'
+          $gpp = $s.'cph.language.cpp.Command'
+          Check (Test-Path $gpp) "compiler exists: $gpp"
+          Set-Content t.cpp "#include <bits/stdc++.h>`nint main(){std::cout<<42;}"
+          & $gpp t.cpp -static -o t.exe; Check ((.\t.exe) -eq '42') 'bits/stdc++.h program compiles and runs'
+          $code = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\bin\code.cmd"
+          $ext = & $code --list-extensions
+          Check ($ext -contains 'nishant.cph-plus') 'CPH Plus installed'
+          Check ($ext -contains 'ms-vscode.cpptools') 'C/C++ installed'
+          $prof = Get-Content -Raw "$([Environment]::GetFolderPath('MyDocuments'))\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+          Check ($prof -match 'Set-Alias ll') 'student profile line kept'
+          Check ($prof -match "Nishant's DSA Setup") 'prompt block added'
+          Check (Test-Path "$env:LOCALAPPDATA\Microsoft\Windows\Fonts\MesloLGMNerdFont-Regular.ttf") 'Nerd Font installed'
+          Check (Test-Path "$env:APPDATA\Code\User\snippets\nishant-dsa.code-snippets") 'snippets added'
+          $omp = & "$env:LOCALAPPDATA\NishantDSASetup\bin\oh-my-posh.exe" print primary --config "$env:LOCALAPPDATA\NishantDSASetup\nishant.omp.json" --shell pwsh
+          Check ($omp.Length -gt 0) 'prompt renders'
+          if ($bad) { exit 1 }
+
+      - name: Run setup a second time (must be safe to repeat)
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\NishantDSASetup\app\windows\setup.ps1" -Unattended
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Restore previous setup
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\NishantDSASetup\app\windows\restore.ps1" -Unattended
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Verify restore
+        shell: powershell
+        run: |
+          function Check($cond, $msg) { if ($cond) { Write-Host "PASS $msg" } else { Write-Host "FAIL $msg"; $script:bad = $true } }
+          $s = Get-Content -Raw "$env:APPDATA\Code\User\settings.json" | ConvertFrom-Json
+          Get-Content "$env:APPDATA\Code\User\settings.json"
+          Check ($s.'editor.fontSize' -eq 14) 'font size restored'
+          Check ($s.'workbench.colorTheme' -eq 'Default Dark+') 'theme restored'
+          Check ((@($s.'code-runner.executorMap'.PSObject.Properties).Count -eq 1) -and $s.'code-runner.executorMap'.python -eq 'python -u') 'executor map restored'
+          Check (-not $s.PSObject.Properties['cph.language.cpp.Command']) 'compiler setting removed'
+          $prof = Get-Content -Raw "$([Environment]::GetFolderPath('MyDocuments'))\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+          Check (($prof -match 'Set-Alias ll') -and ($prof -notmatch "Nishant's DSA Setup")) 'profile restored'
+          $ext = & "$env:LOCALAPPDATA\Programs\Microsoft VS Code\bin\code.cmd" --list-extensions
+          Check ($ext -notcontains 'nishant.cph-plus') 'CPH Plus removed'
+          Check (-not (Test-Path "$env:LOCALAPPDATA\Microsoft\Windows\Fonts\MesloLGMNerdFont-Regular.ttf")) 'fonts removed'
+          Check (-not (Test-Path "$env:LOCALAPPDATA\NishantDSASetup\mingw64")) 'compiler removed'
+          Check (Test-Path "$env:LOCALAPPDATA\NishantDSASetup\state\backups") 'backups kept'
+          if ($bad) { exit 1 }
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build zip
+        run: |
+          mkdir -p build/files dist
+          cp -R mac payload build/files/
+          rm -f build/files/mac/*.command build/files/mac/install.sh
+          cp mac/*.command build/
+          chmod +x build/*.command build/files/mac/*.sh
+          (cd build && zip -qry -X ../dist/NishantsDSASetup-mac.zip .)
+          cp mac/install.sh dist/install-mac.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-installer
+          path: |
+            dist/NishantsDSASetup-mac.zip
+            dist/install-mac.sh
+
+      - name: Pretend to be a student who already has some settings
+        run: |
+          U="$HOME/Library/Application Support/Code/User"
+          mkdir -p "$U"
+          printf '{\n  // my own settings\n  "editor.fontSize": 14,\n  "workbench.colorTheme": "Default Dark+",\n}\n' > "$U/settings.json"
+          echo 'alias ll="ls -la"' >> "$HOME/.zshrc"
+
+      - name: Run setup from the zip (like install-mac.sh does)
+        env:
+          NISHANT_DSA_UNATTENDED: '1'
+          NISHANT_DSA_SKIP_TERMINAL_APP: '1'
+        run: |
+          mkdir -p "$HOME/.nishant-dsa/app"
+          ditto -x -k dist/NishantsDSASetup-mac.zip "$HOME/.nishant-dsa/app"
+          test -x "$HOME/.nishant-dsa/app/Nishant's DSA Setup.command"
+          bash "$HOME/.nishant-dsa/app/files/mac/setup.sh" || { cat "$HOME/.nishant-dsa/setup.log"; exit 1; }
+
+      - name: Verify setup
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          home = os.path.expanduser('~')
+          s = json.load(open(f'{home}/Library/Application Support/Code/User/settings.json'))
+          bad = False
+          def check(c, m):
+              global bad
+              print(('PASS ' if c else 'FAIL ') + m); bad |= not c
+          check(s.get('workbench.colorTheme') == 'Tomorrow Night Blue', 'theme set')
+          check(s.get('editor.fontSize') == 20, 'font size set')
+          gpp = s.get('cph.language.cpp.Command', '')
+          check(os.path.exists(gpp), f'compiler exists: {gpp}')
+          open('/tmp/t.cpp', 'w').write('#include <bits/stdc++.h>\nint main(){std::cout<<42;}\n')
+          subprocess.run([gpp, '/tmp/t.cpp', '-o', '/tmp/t'], check=True)
+          check(subprocess.run(['/tmp/t'], capture_output=True, text=True).stdout == '42', 'bits/stdc++.h program runs')
+          code = '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'
+          ext = subprocess.run([code, '--list-extensions'], capture_output=True, text=True).stdout.lower().split()
+          check('nishant.cph-plus' in ext, 'CPH Plus installed')
+          rc = open(f'{home}/.zshrc').read()
+          check('alias ll' in rc and "Nishant's DSA Setup" in rc, 'zshrc kept + prompt added')
+          check(os.path.exists(f'{home}/Library/Fonts/MesloLGMNerdFont-Regular.ttf'), 'Nerd Font installed')
+          sys.exit(1 if bad else 0)
+          PY
+          zsh -i -c 'echo prompt ok'
+
+      - name: Restore previous setup
+        env:
+          NISHANT_DSA_UNATTENDED: '1'
+          NISHANT_DSA_SKIP_TERMINAL_APP: '1'
+        run: bash "$HOME/.nishant-dsa/app/files/mac/restore.sh"
+
+      - name: Verify restore
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          home = os.path.expanduser('~')
+          p = f'{home}/Library/Application Support/Code/User/settings.json'
+          print(open(p).read())
+          s = json.load(open(p))
+          bad = False
+          def check(c, m):
+              global bad
+              print(('PASS ' if c else 'FAIL ') + m); bad |= not c
+          check(s.get('editor.fontSize') == 14, 'font size restored')
+          check(s.get('workbench.colorTheme') == 'Default Dark+', 'theme restored')
+          check('cph.language.cpp.Command' not in s, 'compiler setting removed')
+          rc = open(f'{home}/.zshrc').read()
+          check('alias ll' in rc and "Nishant's DSA Setup" not in rc, 'zshrc restored')
+          check(not os.path.exists(f'{home}/Library/Fonts/MesloLGMNerdFont-Regular.ttf'), 'fonts removed')
+          code = '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'
+          ext = subprocess.run([code, '--list-extensions'], capture_output=True, text=True).stdout.lower().split()
+          check('nishant.cph-plus' not in ext, 'CPH Plus removed')
+          sys.exit(1 if bad else 0)
+          PY
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/NishantsDSASetup-Windows.exe
+            dist/NishantsDSASetup-mac.zip
+            dist/install-mac.sh

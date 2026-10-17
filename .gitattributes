@@ -1,0 +1,9 @@
+*.sh      text eol=lf
+*.command text eol=lf
+*.js      text eol=lf
+*.yml     text eol=lf
+*.json    text eol=lf
+*.ps1     text eol=crlf
+*.iss     text eol=crlf
+*.ttf     binary
+*.vsix    binary
