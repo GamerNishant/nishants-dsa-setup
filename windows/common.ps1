@@ -15,7 +15,8 @@ $script:BinDir = Join-Path $script:Root 'bin'
 $script:CompilerDir = Join-Path $script:Root 'mingw64'
 $script:ThemePath = Join-Path $script:Root 'nishant.omp.json'
 $script:LogPath = Join-Path $script:Root 'setup.log'
-$script:Unattended = $false
+# $script:Unattended is NOT initialised here: this file is dot-sourced into the
+# calling script's scope, where it would overwrite that script's -Unattended switch.
 $script:BlockStart = "# >>> Nishant's DSA Setup >>>"
 $script:BlockEnd = "# <<< Nishant's DSA Setup <<<"
 
