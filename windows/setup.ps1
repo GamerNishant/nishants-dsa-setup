@@ -5,6 +5,17 @@ param([switch]$Unattended)
 
 . (Join-Path $PSScriptRoot 'common.ps1')
 $script:Unattended = [bool]$Unattended
+Write-Log "=== setup.ps1 starting (unattended=$Unattended, PowerShell $($PSVersionTable.PSVersion)) ==="
+# Any unexpected error ends up in the log with its line number instead of
+# closing the window silently.
+trap {
+    Write-Log "FATAL $_ $($_.InvocationInfo.PositionMessage)"
+    Write-Host ''
+    Write-Host "  Something went wrong: $_" -ForegroundColor Red
+    Write-Host "  Details are in $LogPath. Running the setup again usually fixes download problems."
+    if (-not $script:Unattended) { try { Read-Host '  Press Enter to close' | Out-Null } catch {} }
+    exit 2
+}
 $Payload = Join-Path (Split-Path $PSScriptRoot -Parent) 'payload'
 $Versions = Get-Content -Raw (Join-Path $Payload 'config\versions.json') | ConvertFrom-Json
 
@@ -25,7 +36,7 @@ function Quote-Single([string]$s) { return "'" + $s.Replace("'", "''") + "'" }
 
 # ------------------------------------------------------------------ intro
 
-Clear-Host
+try { Clear-Host } catch {}
 Write-Host ''
 Write-Host '  =============================================' -ForegroundColor Magenta
 Write-Host "        $AppName (Windows)" -ForegroundColor Magenta

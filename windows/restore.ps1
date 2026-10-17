@@ -5,6 +5,14 @@ param([switch]$Unattended, [switch]$FromUninstaller)
 
 . (Join-Path $PSScriptRoot 'common.ps1')
 $script:Unattended = [bool]$Unattended
+Write-Log "=== restore.ps1 starting (unattended=$Unattended) ==="
+trap {
+    Write-Log "FATAL $_ $($_.InvocationInfo.PositionMessage)"
+    Write-Host "  Something went wrong: $_" -ForegroundColor Red
+    Write-Host "  Details are in $LogPath. Your backups are in $StateDir\backups."
+    if (-not $script:Unattended) { try { Read-Host '  Press Enter to close' | Out-Null } catch {} }
+    exit 2
+}
 
 function Invoke-Native([string]$exe, [string[]]$arguments) {
     $old = $ErrorActionPreference

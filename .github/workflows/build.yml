@@ -74,6 +74,13 @@ jobs:
           }
           if (Test-Path $log) { $lines = @(Get-Content $log); if ($lines.Count -gt $shown) { $lines[$shown..($lines.Count - 1)] } }
           if ($p.ExitCode -ne 0) { Get-Content install.log; exit 1 }
+          if (-not ((Test-Path $log) -and (Select-String -Path $log -Pattern 'setup finished' -Quiet))) {
+            Write-Host '----- setup did not finish; installer log:'
+            Get-Content install.log -ErrorAction SilentlyContinue | Select-Object -Last 40
+            Write-Host '----- running setup.ps1 directly to show the error:'
+            powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\NishantDSASetup\app\windows\setup.ps1" -Unattended
+            exit 1
+          }
 
       - name: Verify setup
         shell: powershell
